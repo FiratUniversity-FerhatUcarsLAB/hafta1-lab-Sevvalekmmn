@@ -1,4 +1,201 @@
-Öğrenci No:
-AD-SOYAD:
+Öğrenci No:250541080
+AD-SOYAD:Şevval Ekmen
 
 Lütfen seçtiğiniz algoritmaya ait çözümü ve diğer isterleri aşağıya ekleyiniz:
+/* Girdi:
+   - bugun: bugünün tarihi
+   - sinavTarihi: sınav tarihi
+   - dersler: [ {isim, konuListesi: [{konu, tahminiSaat?}], onem(1-5), zorluk(1-5)} ... ]
+   - gunlukErisilebilirSaat (örn. 4 saat/gün)
+   - oturumUzunluguDakika (örn. 50)
+   - minOturumDakika (örn. 25)
+   - dinlenmeGunuHerKAcGun (örn. 7 -> her 7. gün dinlenme)
+   - tekrarAraliklarıGün = [1, 3, 7, 14]  // spaced repetition
+   - mockSinavGünleri = [14, 7, 2] // sınavdan kaç gün önce deneme sınavı
+*/
+
+/* Çıktı:
+   - takvim: tarih -> liste( {ders, konu, tür: (öğrenme/tekrar/deneme), süreDakika, not} )
+*/
+
+FUNCTION CreateStudyPlan(bugun, sinavTarihi, dersler, gunlukErisilebilirSaat,
+                         oturumUzunluguDakika, minOturumDakika,
+                         dinlenmeGunuHerKAcGun, tekrarAraliklarıGün, mockSinavGünleri):
+
+    // 1. Girdi doğrulama ve başlangıç hesapları
+    toplamGun = DateDiff(sinavTarihi, bugun)  // tam gün sayısı
+    IF toplamGun <= 0 THEN
+        RETURN ERROR "Sınav tarihi bugün veya geçmiş. Lütfen geçerli bir sınav tarihi gir."
+    ENDIF
+
+    // 2. Her konunun tahmini çalışma saati varsa kullan, yoksa tahminle
+    FOR each ders IN dersler:
+        FOR each konu IN ders.konuListesi:
+            IF konu.tahminiSaat == NULL THEN
+                konu.tahminiSaat = EstimateHours(ders.onem, ders.zorluk, konu) 
+                // EstimateHours: onem ve zorluk ile uygun bir tahmin döndürür
+            ENDIF
+        END FOR
+    END FOR
+
+    // 3. Toplam gereken süreyi hesapla
+    toplamGerekenSaat = 0
+    FOR each ders IN dersler:
+        FOR each konu IN ders.konuListesi:
+            toplamGerekenSaat = toplamGerekenSaat + konu.tahminiSaat
+        END FOR
+    END FOR
+
+    toplamErisilebilirSaat = toplamGun * gunlukErisilebilirSaat
+
+    // 4. Müsaitlik kontrolü: yeterli zaman var mı?
+    IF toplamGerekenSaat > toplamErisilebilirSaat THEN
+        // Yetersiz zaman: önceliklendirme ve/veya seçenekler sun
+        dersler = PrioritizeAndTrim(dersler, toplamErisilebilirSaat)
+        // PrioritizeAndTrim: önem/zorluk/konu sayısına göre düşük öncelikli konuları azaltır
+        // Yeniden hesapla toplamGerekenSaat
+        toplamGerekenSaat = RecalculateTotal(dersler)
+        IF toplamGerekenSaat > toplamErisilebilirSaat THEN
+            // hala sığmıyorsa öneri üret (kullanıcıya bildirilir)
+            RETURN WARNING "Mevcut süre sınava yetişmeye yetmeyebilir. Günlük çalışma saatini artır, sınav tarihini ertele veya kapsamı daralt."
+        ENDIF
+    ENDIF
+
+    // 5. Oturum bazlı planlama için hazırlık
+    oturumSaat = oturumUzunluguDakika / 60.0
+    minOturumSaat = minOturumDakika / 60.0
+
+    // her konuyu kaç oturuma bölüneceğini hesapla
+    FOR each ders IN dersler:
+        FOR each konu IN ders.konuListesi:
+            konu.kalanSaat = konu.tahminiSaat
+            konu.oturumSayisi = CEIL(konu.tahminiSaat / oturumSaat)
+        END FOR
+    END FOR
+
+    // 6. Gün gün takvim oluşturma
+    takvim = empty map (tarih -> liste)
+    // pending konular: öncelikli sırada (importance desc, difficulty desc, kalanSaat desc)
+    pendingKonular = FlattenAndSort(dersler)  // her öğe: {dersIsim, konu, kalanSaat, onem, zorluk}
+
+    FOR dayIndex FROM 0 TO toplamGun - 1:
+        thisDate = AddDays(bugun, dayIndex)
+        // dinlenme günü kontrolü
+        IF (dayIndex + 1) % dinlenmeGunuHerKAcGun == 0 THEN
+            takvim[thisDate] = [{tür: "dinlenme", süreDakika: 0, not: "Dinlenme günü"}]
+            CONTINUE
+        ENDIF
+
+        availableSaat = gunlukErisilebilirSaat
+
+        // Gün içinde oturum atamaları
+        WHILE availableSaat >= minOturumSaat AND pendingKonular NOT EMPTY:
+            // seçim stratejisi: interleaving + önceliklendirme
+            konuSec = SelectNextTopic(pendingKonular, thisDate)
+            // allocate süre: ne kadar ayıracağımız
+            allocateSaat = MIN(oturumSaat, konuSec.kalanSaat, availableSaat)
+            // oturumu takvime ekle
+            Append(takvim[thisDate], {ders: konuSec.dersIsim, konu: konuSec.konu, tür: "öğrenme", süreDakika: allocateSaat * 60, not: ""})
+            // güncelle
+            konuSec.kalanSaat = konuSec.kalanSaat - allocateSaat
+            availableSaat = availableSaat - allocateSaat
+
+            IF konuSec.kalanSaat <= 0.0001 THEN
+                // tamamlandı -> removeden pending list
+                Remove(pendingKonular, konuSec)
+                // tamamlandığı güne göre tekrar oturumları planla (spaced repetition)
+                FOR each interval IN tekrarAraliklarıGün:
+                    tekrarTarih = AddDays(thisDate, interval)
+                    IF tekrarTarih <= sinavTarihi THEN
+                        Append(takvim[tekrarTarih], {ders: konuSec.dersIsim, konu: konuSec.konu, tür: "tekrar", süreDakika: MIN(oturumUzunluguDakika, 30), not: "Spaced repetition"})
+                    ENDIF
+                END FOR
+            ENDIF
+        END WHILE
+
+        // Gün sonunda pratik/deneme/kısa tekrar ekle (kalan saatte)
+        IF availableSaat >= minOturumSaat THEN
+            // kısa tekrar/özet
+            Append(takvim[thisDate], {tür: "kısa-tekrar", süreDakika: availableSaat * 60, not: "Gün sonu özet tekrar"})
+            availableSaat = 0
+        ENDIF
+    END FOR
+
+    // 7. Deneme sınavları (mock exams) planla
+    FOR each offset IN mockSinavGünleri:
+        mockTarih = AddDays(sinavTarihi, -offset)
+        IF mockTarih > bugun THEN
+            // yeterli süre ayır (tam sınav süresi veya belirlenen süre)
+            AppendAtStart(takvim[mockTarih], {tür: "deneme-sınavı", süreDakika: ESTIMATE_MOCK_DURATION(dersler), not: "Tam süre deneme sınavı"})
+        ENDIF
+    END FOR
+
+    // 8. Final kontrol: tüm konular planlandı mı?
+    IF pendingKonular NOT EMPTY THEN
+        // hala dağınık kalan konular varsa boşluklara sığdır veya uyar
+        success = TryFitRemaining(pendingKonular, takvim, sinavTarihi, minOturumSaat)
+        IF NOT success THEN
+            RETURN WARNING "Tüm konular tam olarak takvime sığmadı; önceliklere göre bazı konular azaltıldı."
+        ENDIF
+    ENDIF
+
+    // 9. Adaptif izleme & tekrar planı (haftalık)
+    // Haftalık: ilerleme ölç, hedefin gerisindeyse planı yeniden dağıt
+    schedule WeeklyReview every 7 days FROM bugun TO sinavTarihi:
+        progress = ComputeProgress(takvim, dersler, bugun)
+        IF progress < ExpectedProgress(weekNumber) THEN
+            // yeniden dağıtma: günlük saatleri artırma önerisi veya öncelik değişikliği
+            RedistributeRemaining(takvim, pendingKonular, gunlukErisilebilirSaat + SUGGESTED_INCREASE)
+        ENDIF
+    END SCHEDULE
+
+    RETURN takvim
+END FUNCTION
+
+
+/* ---------- Yardımcı Fonksiyonlar (özet) ---------- */
+
+FUNCTION EstimateHours(onem, zorluk, konu):
+    // Basit bir tahmin fonksiyonu, kullanıcı ayarlayabilir
+    base = 1.0
+    faktor = 0.8 * onem + 0.6 * zorluk    // örnek ağırlıklar; ihtiyaca göre değiştirilir
+    RETURN base * faktor * 2.0  // saat cinsinden bir tahmin döner
+END
+
+FUNCTION PrioritizeAndTrim(dersler, toplamErisilebilirSaat):
+    // Dersleri ve konuları önem/zorluk/konu sayısına göre sırala
+    // Düşük öncelikli konulardan kısaltma yap veya tamamen çıkar
+    SORT tümKonuListesi by (onem desc, zorluk desc, kalanSaat desc)
+    WHILE RecalculateTotal(dersler) > toplamErisilebilirSaat:
+        // en düşük önceliği seç ve ya süresini azalt ya da çıkar
+        lowest = LastElement(tümKonuListesi)
+        IF lowest.tahminiSaat > 1 THEN
+            lowest.tahminiSaat = lowest.tahminiSaat - 1  // azalt
+        ELSE
+            Remove(tümKonuListesi, lowest)  // çıkar
+        ENDIF
+    END WHILE
+    RETURN ConvertBackToDersler(tümKonuListesi)
+END
+
+FUNCTION SelectNextTopic(pendingKonular, thisDate):
+    // Karma bir strateji: önce bitişe yakın, sonra önem, sonra interleaving
+    SORT pendingKonular by (onem desc, zorluk desc, kalanSaat desc)
+    RETURN pendingKonular[0] // basit: en yüksek öncelikli seç
+END
+
+FUNCTION TryFitRemaining(pendingKonular, takvim, sinavTarihi, minOturumSaat):
+    // Boş günlere bakıp kalan konuları sıkıştırmaya çalış
+    FOR day FROM bugun TO sinavTarihi:
+        freeSaat = ComputeFreeHours(takvim[day], gunlukErisilebilirSaat)
+        WHILE freeSaat >= minOturumSaat AND pendingKonular NOT EMPTY:
+            konu = pendingKonular[0]
+            allocate = MIN(freeSaat, oturumSaat, konu.kalanSaat)
+            Append(takvim[day], {ders: konu.dersIsim, konu: konu.konu, tür:"öğrenme", süreDakika: allocate*60})
+            konu.kalanSaat -= allocate
+            freeSaat -= allocate
+            IF konu.kalanSaat <= 0 THEN Remove(pendingKonular, konu) ENDIF
+        END WHILE
+    END FOR
+    RETURN pendingKonular EMPTY?
+END
