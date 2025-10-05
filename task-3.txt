@@ -1,4 +1,73 @@
-Öğrenci No:
-AD-SOYAD:
+Öğrenci No:250541080
+AD-SOYAD:Şevval Ekmen
 
 Lütfen seçtiğiniz algoritmaya ait çözümü ve diğer isterleri aşağıya ekleyiniz:
+// **Veri Yapısı:** Her Kitap öğesinin şu alanları olduğunu varsayalım:
+// * ID (Benzersiz Kimlik Numarası)
+// * Baslik (Kitabın Adı)
+// * Yazar (Kitabın Yazarı)
+// * Konu (Kitabın Kategorisi/Konusu)
+// * ISBN (Uluslararası Standart Kitap Numarası)
+
+FONKSIYON KitapAramaSistemi(KitapListesi, AnahtarKelime)
+  // 1. GEREKLİ LİSTELERİ VE DEĞİŞKENLERİ BAŞLAT
+  SonucListesi = Boş Liste // Arama sonuçlarını tutacak liste
+  AnahtarKelime = AnahtarKelimeyiKucukHarfeCevir(AnahtarKelime) // Aramayı büyük/küçük harf duyarsız yapmak için
+
+  // 2. KİTAP LİSTESİNDEKİ HER KİTABI TEK TEK İŞLE
+  HER Kitap Icin KitapListesi'nde YAP
+    KitapEslesmeVar = YANLIS // Varsayılan olarak eşleşme yok
+
+    // 3. KİTAP BİLGİLERİNİ KONTROL ETME
+    
+    // a. Başlıkta Arama
+    BaslikKucuk = Kitap.Baslik'iKucukHarfeCevir()
+    EGER BaslikKucuk AnahtarKelime'yi ICERIYORSA (veya eşleşiyorsa) O ZAMAN
+      KitapEslesmeVar = DOGRU
+    BITIR EGER
+
+    // b. Yazarda Arama (Sadece daha önce eşleşme bulunmadıysa)
+    EGER KitapEslesmeVar == YANLIS O ZAMAN
+      YazarKucuk = Kitap.Yazar'ıKucukHarfeCevir()
+      EGER YazarKucuk AnahtarKelime'yi ICERIYORSA O ZAMAN
+        KitapEslesmeVar = DOGRU
+      BITIR EGER
+    BITIR EGER
+
+    // c. Konuda Arama (Sadece daha önce eşleşme bulunmadıysa)
+    EGER KitapEslesmeVar == YANLIS O ZAMAN
+      KonuKucuk = Kitap.Konu'yuKucukHarfeCevir()
+      EGER KonuKucuk AnahtarKelime'yi ICERIYORSA O ZAMAN
+        KitapEslesmeVar = DOGRU
+      BITIR EGER
+    BITIR EGER
+    
+    // d. ISBN'de Tam Arama (Tam eşleşme beklenir)
+    EGER KitapEslesmeVar == YANLIS O ZAMAN
+        EGER Kitap.ISBN AnahtarKelime'ye ESITSE O ZAMAN
+            KitapEslesmeVar = DOGRU
+        BITIR EGER
+    BITIR EGER
+
+    // 4. EŞLEŞEN KİTABI SONUÇ LİSTESİNE EKLE
+    EGER KitapEslesmeVar == DOGRU O ZAMAN
+      SonucListesi'ne Kitap'ı EKLE
+    BITIR EGER
+
+  BITIR HER
+
+  // 5. SONUÇLARI DÖNDÜR
+  DONDUR SonucListesi
+BITIR FONKSIYON
+
+// --- EK ADIMLAR (Kullanıcı Arayüzü İçin) ---
+// 6. KULLANICIDAN GİRİŞ ALMA
+// KullanicidanAnahtarKelimeyiISTE
+// 7. ARAMAYI ÇALIŞTIRMA
+// BulunanKitaplar = KitapAramaSistemi(TumKutuphaneKitaplari, KullanicidanAnahtarKelime)
+// 8. SONUÇLARI GÖSTERME
+// EGER BulunanKitaplar Boş DEGILSE O ZAMAN
+//   BulunanKitaplari Ekrana_SIRALA(Baslik, Yazar, Konu gibi bilgileri göstererek)
+// BASKA
+//   Ekrana "Aradığınız kelimeyle eşleşen kitap bulunamadı." MESAJI GÖSTER
+// BITIR EGER
