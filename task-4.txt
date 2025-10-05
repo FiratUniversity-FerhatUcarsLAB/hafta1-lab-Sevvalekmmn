@@ -1,4 +1,68 @@
-Öğrenci No:
-AD-SOYAD:
+Öğrenci No:250541080
+AD-SOYAD:Şevval Ekmen
 
 Lütfen seçtiğiniz algoritmaya ait çözümü ve diğer isterleri aşağıya ekleyiniz:
+FONKSIYON AdilPastaPaylasimi(KişiListesi)
+
+  N = KişiListesi'nin eleman sayısı
+  KalanPasta = Bütün Pasta (1.0)
+  Paylar = Her Kişi için Boş Pay Listesi
+
+  // Paylaşım N-1 tur sürecektir, çünkü son turda kalan parça son kişiye aittir.
+  MevcutTur = 1
+  SıradakiKesici = KişiListesi[1] // İlk kesici K1 olarak başlar.
+  
+  // Tüm N kişi birer parça alana kadar döngüyü sürdür.
+  WHILE Almamış Kişi Var O ZAMAN YAP
+    
+    // **a. Tur Başlangıcı:** Bu turda bir parça pasta paylaştırılacaktır.
+    TurParcasi = KalanPasta 
+    GeciciParca = TurParcasi
+    SonKalan = YOK
+    
+    // **b. Kesme/Küçültme İşlemi (Diminishing)**
+    // Pasta, kesiciden başlayarak her kişiye sırayla sunulur.
+    
+    HER Kişi Için KişiListesi'ndeki Sıraya Göre (SıradakiKesiciden Başlayarak) YAP
+      MevcutKişi = Kişi
+
+      EGER MevcutKişi'nin Payı Henüz Belirlenmediyse O ZAMAN
+        
+        // 1. KESME: Kişi, GeciciParca'yı kendisi için **adil** olduğunu düşündüğü bir şekilde keser.
+        // Adalet Kriteri: Kestiği parçanın kendi için toplam GeciciParca'nın 1/N'inden büyük/eşit olması.
+        
+        KestiğiParça = MevcutKişi'nin_GeciciParca'dan_Kendi_İçin_Adil_Gördüğü_Parçayı_Kestiği_Değer
+        
+        EGER KestiğiParça == GeciciParca O ZAMAN
+          // Kişi, parçayı küçültmedi (adil buldu).
+          SonKalan = MevcutKişi
+        BASKA
+          // Kişi parçayı küçülttü. Geri kalan kısım yeni GeciciParca olur.
+          GeciciParca = KalanParça (GeciciParca - KestiğiParça)
+          SonKalan = MevcutKişi // Kesen kişi, şimdilik Son Kalan (Last Diminisher) olur.
+        BITIR EGER
+        
+      BITIR EGER
+    BITIR HER
+    
+    // **c. Parçayı Verme ve Güncelleme**
+    
+    // 1. Parçayı Son Kalana Ver:
+    Paylar[SonKalan]'a (KestiğiParça - Küçültülmüş Parça) veya sadece GeciciParca'yı EKLE.
+    
+    // 2. Kalan Pastayı Güncelle:
+    KalanPasta = KalanPasta - SonKalan'ın_Aldığı_Pay
+    
+    // 3. Bir sonraki turun kesicisini ayarla (Genellikle en son kesen/alan kişi, bir sonraki turun kesicisi olur).
+    SıradakiKesici = SonKalan
+    MevcutTur = MevcutTur + 1
+    
+  BITIR WHILE
+  
+  // N-1 kişi payını aldıktan sonra, kalan pasta otomatik olarak son kişiye aittir.
+  
+  SonKişi = Henüz Pay Almamış Tek Kişi
+  Paylar[SonKişi]'ye KalanPasta'yı EKLE
+
+  DONDUR Paylar // Her kişinin aldığı payları içeren listeyi geri döndür.
+BITIR FONKSIYON
