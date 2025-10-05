@@ -1,4 +1,191 @@
-Öğrenci No:
-AD-SOYAD:
+Öğrenci No:250541080
+AD-SOYAD:Şevval Ekmen
 
 Lütfen seçtiğiniz algoritmaya ait çözümü ve diğer isterleri aşağıya ekleyiniz:
+# Temel veri yapıları:
+# board[r][c] = 0 boş, 1..9 dolu
+# candidates[r][c] = küme(1..9) — sadece boş hücreler için kullanılır
+# peers(r,c) = aynı satır, sütun ve 3x3 kutudaki diğer hücrelerin listesi
+
+function HYBRID_SUDOKU_SOLVE(board):
+    candidates = INIT_CANDIDATES(board)
+    changed = TRUE
+
+    # 1) İnsan-benzeri kısıt yayma (iteratif)
+    while changed:
+        changed = APPLY_HUMAN_STRATEGIES(board, candidates)
+        if CONTRADICTION_DETECTED(board, candidates):
+            return FAILURE
+
+    if IS_SOLVED(board):
+        return board
+
+    # 2) Eğer kalan boşluklar çok azsa önce geri-izleme deneyebilirsin:
+    empties = COUNT_EMPTY(board)
+    if empties <= 16:                             # eşik: isteğe göre ayarlanır
+        result = BACKTRACK_SEARCH(board, candidates)
+        if result != FAILURE:
+            return result
+
+    # 3) Exact Cover (DLX) dene
+    matrix = TO_EXACT_COVER_MATRIX(board, candidates)
+    solution_rows = DLX_SOLVE(matrix)             # Algorithm X / Dancing Links
+    if solution_rows != NONE:
+        apply_solution_rows_to_board(solution_rows, board)
+        return board
+
+    # 4) Stokastik onarım yedek (min-conflicts)
+    result = MIN_CONFLICTS_REPAIR(board, candidates, max_iters=200000)
+    if result != FAILURE:
+        return result
+
+    # 5) Son çare: güçlü geri-izleme (MRV + forward-checking)
+    result = BACKTRACK_SEARCH(board, candidates)
+    if result != FAILURE:
+        return result
+
+    return FAILURE
+
+
+# -------------------------
+# Yardımcı fonksiyonlar
+# -------------------------
+
+function INIT_CANDIDATES(board):
+    for each cell (r,c):
+        if board[r][c] != 0:
+            candidates[r][c] = { board[r][c] }
+        else:
+            candidates[r][c] = {1..9} - numbers_in_peers(board, r, c)
+    return candidates
+
+function APPLY_HUMAN_STRATEGIES(board, candidates):
+    changed = FALSE
+
+    # Propagate: tek adaylı hücreleri ata
+    for each empty cell (r,c):
+        if size(candidates[r][c]) == 0:
+            mark contradiction
+            return TRUE    # değişti sayılır ama kırılacak
+        if size(candidates[r][c]) == 1 and board[r][c] == 0:
+            val = only_element(candidates[r][c])
+            ASSIGN(board, candidates, r, c, val)
+            changed = TRUE
+
+    # Hidden single (bir birimde bir rakam sadece bir hücrede adaysa ata)
+    for each unit in (rows, cols, boxes):
+        for d in 1..9:
+            positions = [cells in unit where d in candidates[cell]]
+            if length(positions) == 1:
+                (r,c) = positions[0]
+                if board[r][c] == 0:
+                    ASSIGN(board, candidates, r, c, d)
+                    changed = TRUE
+
+    # Naked pair / triple (basit uygulama: çiftleri bul, diğer hücrelerden çıkar)
+    for each unit in (rows, cols, boxes):
+        changed |= APPLY_NAKED_SUBSET_RULE(unit, candidates, size=2)
+        changed |= APPLY_NAKED_SUBSET_RULE(unit, candidates, size=3)
+
+    # Pointing / box-line reduction
+    for each box b:
+        for d in 1..9:
+            pos = [cell in box b where d in candidates[cell]]
+            if pos not empty and all pos share same row r:
+                # d yalnızca bu kutudaki hücrelerin aynı satırındaysa, o satırın diğer hücrelerinden d'yi çıkar
+                for cell in row r outside box b:
+                    if d in candidates[cell]:
+                        remove d from candidates[cell]
+                        changed = TRUE
+            if pos not empty and all pos share same col c:
+                # benzer sütun için
+                for cell in col c outside box b:
+                    if d in candidates[cell]:
+                        remove d from candidates[cell]
+                        changed = TRUE
+
+    # Her ASSIGN çağrısı içinde peers'lerden aday çıkarma ve yeni tek adaylar üretebilir
+    return changed
+
+
+function ASSIGN(board, candidates, r, c, val):
+    board[r][c] = val
+    candidates[r][c] = {val}
+    # Forward-checking: peers'ten val'i çıkar
+    for p in peers(r,c):
+        if val in candidates[p]:
+            remove val from candidates[p]
+
+
+function TO_EXACT_COVER_MATRIX(board, candidates):
+    # 4 tür zorunluluk sütunu:
+    # 1) Cell constraint (r,c) — her hücre bir rakam almalı (81)
+    # 2) Row-digit constraint (r,d) — her satır için her rakam bir kere olmalı (9*9)
+    # 3) Col-digit constraint (c,d) — her sütun için her rakam bir kere olmalı (9*9)
+    # 4) Box-digit constraint (b,d) — her kutu için her rakam bir kere olmalı (9*9)
+    # Her olası atama (r,c,d) için, eğer d candidates[r][c] içindeyse, matris satırı ekle
+    create empty matrix M with columns for tüm zorunluluklar
+    for r in 1..9:
+        for c in 1..9:
+            if board[r][c] == 0:
+                possible_digits = candidates[r][c]
+            else:
+                possible_digits = { board[r][c] }
+            for d in possible_digits:
+                row = zeros(column_count)
+                row[ cell_constraint_index(r,c) ] = 1
+                row[ rowdigit_index(r,d) ] = 1
+                row[ coldigit_index(c,d) ] = 1
+                row[ boxdigit_index(box_of(r,c), d) ] = 1
+                add row to M labeled (r,c,d)
+    return M
+
+function DLX_SOLVE(matrix):
+    # Kısa özet: Algorithm X with Dancing Links
+    # Eğer matrix boşsa çözüm bulundu -> return selected_rows
+    # seçilecek sütunu en az 1'li satıra sahip olarak seç (heuristic: en az 1'li sütun)
+    # her satır için o satırı seç -> cover sütunları -> recurse -> uncover
+    # (Burada DLX veri yapısını ve cover/uncover işlemlerini kullan.)
+    implement AlgorithmX_DLX(matrix)   # detaylı DLX implementasyonu burada
+    return solution_rows or NONE
+
+
+function MIN_CONFLICTS_REPAIR(board, candidates, max_iters):
+    # 1) Rastgele fakat adaylara uyan bir başlangıç doldurma:
+    working = copy of board
+    for each empty cell (r,c):
+        choose random val from candidates[r][c]
+        working[r][c] = val
+
+    for iter in 1..max_iters:
+        conflicts = compute_conflicts(working)  # her hücrede kaç çakışma var (satır/sütun/box)
+        if total_conflicts(conflicts) == 0:
+            return working
+        # rasgele bir çatışmalı hücre seç
+        (r,c) = random_choice([cells with conflicts > 0])
+        # bu hücre için adaylar arasından çakışmayı en aza indiren değeri seç
+        best_val = argmin_{d in candidates[r][c]} conflicts_if_set(working, r, c, d)
+        working[r][c] = best_val
+    return FAILURE
+
+
+function BACKTRACK_SEARCH(board, candidates):
+    if IS_SOLVED(board):
+        return board
+    # MRV: boş hücre içinde en az adaylı olanı seç
+    (r,c) = select_empty_cell_with_fewest_candidates(candidates)
+    for d in candidates[r][c] in some order (prefer heuristic order):
+        board_copy = deep_copy(board)
+        candidates_copy = deep_copy(candidates)
+        ASSIGN(board_copy, candidates_copy, r, c, d)
+        # propagate basitçe insan-strategilerini uygula (forward-check)
+        repeat:
+            changed = APPLY_HUMAN_STRATEGIES(board_copy, candidates_copy)
+            if CONTRADICTION_DETECTED(board_copy, candidates_copy): break
+        until not changed
+        if CONTRADICTION_DETECTED(board_copy, candidates_copy):
+            continue
+        result = BACKTRACK_SEARCH(board_copy, candidates_copy)
+        if result != FAILURE:
+            return result
+    return FAILURE
